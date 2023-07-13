@@ -21,7 +21,7 @@ g++ camera_pulse.cpp /usr/lib/x86_64-linux-gnu/libnidaqmx.so -o camera_pulse
 ### Usage
 Run by executing:
 ```
-./camera_pulse
-
 ./send_timestamp_as_bitcode
+
+./camera_pulse
 ```
