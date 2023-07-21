@@ -1,12 +1,4 @@
-/**
- * This file demonstrates the use of a NIDAQ board to send a hardware-timed bitcode that corresponds to a timestamp.
- *
- * The main thread obtains new timestamps, and a separate thread controls the NIDAQ board and sends the bitcode pulses.
- *
- * In our setup, we are using a NI PCIe-6321 board.
- * Channels Dev2/port0/line0 and Dev2/port0/line1 are physically connected.
- * Channels Dev2/port0/line2 and Dev2/port0/line3 are physically connected.
- */
+
 
 #include <NIDAQmx.h>
 

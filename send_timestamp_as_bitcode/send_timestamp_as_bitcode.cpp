@@ -23,11 +23,12 @@ int main() {
     // Sleep to allow thread to start
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
-    for (int i = 0; i < 25; i++) {
+    for (int i = 0; i < 1; i++) {
         // Get timestamp
         tsInAtomic = getCPUClockTimeUS();  // atomic variable
+        std::cout << "Timestamp: " << tsInAtomic << std::endl;
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     keepSendingBitcodeFlag = false;
 

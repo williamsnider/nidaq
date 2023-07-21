@@ -7,7 +7,7 @@ import nidaqmx
 from nidaqmx.constants import AcquisitionType
 from nidaqmx.types import CtrTime
 
-CAMERA_FPS = 5  # hz
+CAMERA_FPS = 100  # hz
 
 with nidaqmx.Task() as co_task, nidaqmx.Task() as ci_task:
     # # ctr1-src defaults to line PFI3
