@@ -1,4 +1,4 @@
-
+#pragma once
 
 #include <NIDAQmx.h>
 
@@ -7,18 +7,21 @@
 #include <iostream>
 #include <thread>
 
-constexpr int BITCODE_LENGTH = 68;                     // 64 bits for timestamp + 4 bits for start/end of bitcode
-constexpr float64 SAMPLE_RATE = 1000.0;                // Hz
-constexpr int READ_ARRAY_LENGTH = BITCODE_LENGTH + 1;  // Read 1 sample more than write
-std::atomic<uint64_t> tsInAtomic(0);                   // Thread safe timestamp
-std::atomic<bool> keepSendingBitcodeFlag(true);        // For checking if timestamp has changed
+constexpr int DIGIT_SAMPLE_HZ = 1000;                            // Hz; apparent sampling rate of digits from Intan
+constexpr int DIGIT_REPEATS = 40;                                // Number of repeated samples for each digit
+constexpr float64 SAMPLE_RATE = DIGIT_SAMPLE_HZ * DIGIT_REPEATS; // Hz; actual sampling rate of NIDAQ
+constexpr int NUM_DIGITS = 68;                                   // Number of digits in binary representation of timestamp (64 for timestamp + 4 for start/end digits)
+constexpr int BITCODE_LENGTH = NUM_DIGITS * DIGIT_REPEATS;       // 64 digits for timestamp + 4 digits for start/end of bitcode, with DIGIT_REPEATS samples for each digit
+constexpr int READ_ARRAY_LENGTH = BITCODE_LENGTH + 1;            // Read 1 sample more than write
+std::atomic<uint64_t> tsInAtomic(0);                             // Thread safe timestamp
 
 /**
  * @brief Handles error from NI-DAQmx functions.
  *
  * @param err NI-DAQmx error code.
  */
-inline void handleError(int err) {
+inline void handleError(int err)
+{
     if (err == 0)
         return;
 
@@ -32,7 +35,8 @@ inline void handleError(int err) {
  *
  * @return uint64_t microseconds since last boot.
  */
-uint64_t getCPUClockTimeUS() {
+uint64_t getCPUClockTimeUS()
+{
     std::chrono::duration<double> time = std::chrono::steady_clock::now().time_since_epoch();
     auto us = std::chrono::duration_cast<std::chrono::microseconds>(time);
 
@@ -46,9 +50,11 @@ uint64_t getCPUClockTimeUS() {
  * @param n integer to convert
  * @return std::string
  */
-std::string convertIntToBinary(uint64_t n) {
+std::string convertIntToBinary(uint64_t n)
+{
     std::string result;
-    while (n != 0) {
+    while (n != 0)
+    {
         result = (n % 2 == 0 ? "0" : "1") + result;
         n /= 2;
     }
@@ -66,23 +72,39 @@ std::string convertIntToBinary(uint64_t n) {
  * @param bitcodeLength length of bitcode array
  * @param writeArray array to write bitcode to
  */
-void convertIntToBitcode(uint64_t n, int bitcodeLength, uInt8* writeArray) {
+void convertIntToBitcode(uint64_t n, int bitcodeLength, uInt8 *writeArray)
+{
     // Convert n to binary string
     std::string binary = convertIntToBinary(n);
 
-    // Pad with leading zeros
-    while (binary.length() < bitcodeLength - 4) {
+    // Pad with leading zeros to NUM_DIGITS-4 digits
+    while (int(binary.length()) < NUM_DIGITS - 4)
+    {
         binary = "0" + binary;
     }
 
     // Insert into bitcode,  Set first/last bit to 0 and second/second-to-last bit to 1
     std::string bitcode = "01" + binary + "10";
 
+    // Expand to full bitcode length (each digit is repeated DIGIT_REPEATS times)
+    std::string expanded_bitcode = "";
+    for (int i = 0; i < bitcode.length(); i++)
+    {
+        for (int j = 0; j < DIGIT_REPEATS; j++)
+        {
+            expanded_bitcode += bitcode[i];
+        }
+    }
+
     // Convert to uInt8 array
-    for (int i = 0; i < bitcode.length(); i++) {
-        if (bitcode[i] == '0') {
+    for (int i = 0; i < int(expanded_bitcode.length()); i++)
+    {
+        if (expanded_bitcode[i] == '0')
+        {
             writeArray[i] = 0;
-        } else {
+        }
+        else
+        {
             writeArray[i] = 1;
         }
     }
@@ -94,16 +116,28 @@ void convertIntToBitcode(uint64_t n, int bitcodeLength, uInt8* writeArray) {
  * @param readArray array of bits read from read_hw task. Should have length BITCODE_LENGTH+1.
  * @return uint64_t
  */
-uint64_t convertReadArrayToInt(uInt8* readArray) {
+uint64_t convertReadArrayToInt(uInt8 *readArray)
+{
     // Convert array to binary string, ignoring first/last bits that are always HIGH. Note that in the bitcode, these
     // refer to the second/second-to-last bit bits.
-    std::string binary;
-    for (int i = 1; i < READ_ARRAY_LENGTH; i++) {
-        if (readArray[i] == 0) {
-            binary += "0";
-        } else {
-            binary += "1";
+    std::string expanded_binary;
+    for (int i = 1; i < READ_ARRAY_LENGTH; i++)
+    {
+        if (readArray[i] == 0)
+        {
+            expanded_binary += "0";
         }
+        else
+        {
+            expanded_binary += "1";
+        }
+    }
+
+    // Shorten expanded_binary, taking every DIGIT_REPEATS'th value
+    std::string binary = "";
+    for (int i = 0; i < expanded_binary.length(); i += DIGIT_REPEATS)
+    {
+        binary += expanded_binary[i];
     }
 
     // Convert binary string to int
@@ -111,7 +145,8 @@ uint64_t convertReadArrayToInt(uInt8* readArray) {
     // signify the start/end of the bitcode, we want to ignore those when converting to the timestamp, so index from 2 and
     // go to length-2.
     uint64_t n = 0;
-    for (int i = 2; i < binary.length() - 2; i++) {
+    for (int i = 2; i < int(binary.length()) - 2; i++)
+    {
         n = n * 2 + binary[i] - '0';
     }
 
@@ -130,7 +165,12 @@ uint64_t convertReadArrayToInt(uInt8* readArray) {
  * @param readSw  handle to a software read task
  * @return uint64_t
  */
-uint64_t sendTimestampAsBitcodePulse(TaskHandle& writeHw, TaskHandle& readHw, TaskHandle& writeSw, TaskHandle& readSw) {
+uint64_t sendTimestampAsBitcodePulse(uint64_t tsIn,
+                                     TaskHandle &writeHw,
+                                     TaskHandle &readHw,
+                                     TaskHandle &writeSw,
+                                     TaskHandle &readSw)
+{
     /////////////////
     /*Software HIGH*/
     /////////////////
@@ -140,8 +180,8 @@ uint64_t sendTimestampAsBitcodePulse(TaskHandle& writeHw, TaskHandle& readHw, Ta
 
     uInt8 swWrite1[1] = {1};
     handleError(DAQmxWriteDigitalLines(writeSw, 1, true, 1, DAQmx_Val_GroupByChannel, swWrite1, NULL, NULL));
-    uint64_t swTime = getCPUClockTimeUS();
-    std::cout << "swT: " << swTime - tsInAtomic << "us" << std::endl;
+    [[maybe_unused]] uint64_t swTime = getCPUClockTimeUS();
+    // std::cout << "swT: " << swTime - tsInAtomic << "us" << std::endl;
 
     ////////////////////////////////
     /*Hardware timed bitcode pulse*/
@@ -152,7 +192,7 @@ uint64_t sendTimestampAsBitcodePulse(TaskHandle& writeHw, TaskHandle& readHw, Ta
 
     // Convert timestamp to bitcode
     uInt8 writeArray[BITCODE_LENGTH];
-    convertIntToBitcode(tsInAtomic, BITCODE_LENGTH, writeArray);
+    convertIntToBitcode(tsIn, BITCODE_LENGTH, writeArray);
 
     // Write bitcode; does not write until triggered by start of read task
     handleError(DAQmxWriteDigitalLines(writeHw, BITCODE_LENGTH, true, 1, DAQmx_Val_GroupByChannel, writeArray, 0, NULL));
@@ -174,15 +214,22 @@ uint64_t sendTimestampAsBitcodePulse(TaskHandle& writeHw, TaskHandle& readHw, Ta
     swWrite1[0] = {0};
     handleError(DAQmxWriteDigitalLines(writeSw, 1, true, 1, DAQmx_Val_GroupByChannel, swWrite1, NULL, NULL));
 
+    // Read - not necesary for logic of code, but suppresses cmake warning of unsued readSw
+    uInt8 swRead1[1] = {0};
+    handleError(
+        DAQmxReadDigitalLines(readSw, 1, 1, DAQmx_Val_GroupByChannel, swRead1, sizeof(swRead1), NULL, NULL, NULL));
+
     /////////////////////////////////////////////
     /*Compare timestamp sent and timestamp read*/
     /////////////////////////////////////////////
 
     // Convert back to timestamp
     uint64_t tsOut = convertReadArrayToInt(readArray);
+
     // Compare tsIn and tsOut
-    if (tsInAtomic != tsOut) {
-        std::cout << "Failure for timestamp: " << tsInAtomic << std::endl;
+    if (tsIn != tsOut)
+    {
+        std::cout << "Failure for timestamp: " << tsIn << std::endl;
     }
 
     return tsOut;
@@ -194,9 +241,10 @@ uint64_t sendTimestampAsBitcodePulse(TaskHandle& writeHw, TaskHandle& readHw, Ta
  * This function operates as a separate thread. When it detects a changes in the atomic variable tsInAtomic, it sends
  * the bitcode.
  *
+ * @param keepSendingBitcodeFlag_ptr pointer to atomic bool that controls whether to keep sending bitcode
  */
-void bitcodeSender() {
-    uint64_t ts;
+void bitcodeSender(std::atomic<bool> *keepSendingBitcodeFlag_ptr)
+{
     ////////////////////////
     /* Initialize Channels*/
     ////////////////////////
@@ -240,22 +288,24 @@ void bitcodeSender() {
 
     // tsPrev is used to check if the timestamp has changed
     uint64_t tsPrev = tsInAtomic;
-    uint64_t tsOut;
 
     // Loop until timestamp changes
-    while (keepSendingBitcodeFlag) {
+    while (*keepSendingBitcodeFlag_ptr)
+    {
         // If timestamp has changed, send bitcode pulse
-        if (tsInAtomic != tsPrev) {
-            tsOut = sendTimestampAsBitcodePulse(writeHw, readHw, writeSw, readSw);
+        if (tsInAtomic != tsPrev)
+        {
+            uint64_t tsIn = tsInAtomic;
+            sendTimestampAsBitcodePulse(tsIn, writeHw, readHw, writeSw, readSw);
 
-            uint64_t tsFinal = getCPUClockTimeUS();
+            [[maybe_unused]] uint64_t tsFinal = getCPUClockTimeUS();
 
-            std::cout << "RTT: " << tsFinal - tsInAtomic << "us" << std::endl;
+            // std::cout << "RTT: " << tsFinal - tsInAtomic << "us" << std::endl;
 
             // Print variables
-            std::cout << "**********************" << std::endl;
-            tsPrev = tsInAtomic;
+            // std::cout << "**********************" << std::endl;
+            tsPrev = tsIn;
         }
-        std::this_thread::sleep_for(std::chrono::microseconds(10));  // Allow time on other threads
+        std::this_thread::sleep_for(std::chrono::microseconds(10)); // Allow time on other threads
     }
 }

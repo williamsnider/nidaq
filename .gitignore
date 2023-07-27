@@ -1,7 +1,8 @@
-*.vscode*
 
 # Ignore executables (lack extension)
 
 *
 !*.*
 !*/
+
+*.vscode*
